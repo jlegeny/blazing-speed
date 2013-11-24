@@ -8,6 +8,7 @@
 
 # Permission is hereby granted to use, distribute and modify this program
 # by anybody for any purpose. Attribution is welcome but not mandatory.
+# For more details read the LICENSE file
 
 use strict;
 use feature ':5.16';
@@ -27,7 +28,7 @@ my $o_keepSession;
 GetOptions(
 	'slices=i' => \$o_slices,
 	'port=i' => \$o_port,
-	'minimums-size=i' => \$o_minimumSize,
+	'minimum-size=i' => \$o_minimumSize,
 	'block-size=i' => \$o_blockSize,
 	'own-address=s' => \$o_myIP,
 	'keep-session!' => \$o_keepSession,
