@@ -16,29 +16,22 @@ use LWP::Simple;
 use Regexp::Common qw /net/;
 use Switch;
 
-my %defaults = (
+my $o_port = 42000; # starting port, will use more
 	'slices' => 3, # number of concurrent transfers
-	'port' => 42000, # starting port, will use more
-	'minimumSize' => 1024*1024, # if target file is smaller than this it will be simply copied by scp
-	'blockSize' => 128, # size of transferred blocks
-	'myIP' => 'auto', # own public IP address
-);
-
-my $o_port = $defaults{port};
-my $o_slices = $defaults{slices};
-my $o_minimumSize = $defaults{minimumSize};
-my $o_blockSize = $defaults{blockSize};
-my $o_myIP = $defaults{myIP};
+my $o_slices = 3; # number of concurrent transfers
+my $o_minimumSize = 1024*1024; # if target file is smaller than this it will be simply copied by scp
+my $o_blockSize = 512; # size of transferred blocks
+my $o_myIP = 'auto'; # own public IP address
 my $o_keepSession;
 
 GetOptions(
-	's|slices:i' => \$o_slices,
-	'p|port:i' => \$o_port,
-	'm|minimumSize:i' => \$o_minimumSize,
-	'b|blockSize:i' => \$o_blockSize,
-	'a|ownAddress:s' => \$o_myIP,
-	'ks|keepSession' => \$o_keepSession,
-);
+	'slices=i' => \$o_slices,
+	'port=i' => \$o_port,
+	'minimums-size=i' => \$o_minimumSize,
+	'block-size=i' => \$o_blockSize,
+	'own-address=s' => \$o_myIP,
+	'keep-session!' => \$o_keepSession,
+) or die "Error handling command line arguments";
 
 # determine the own IP address if it was not specified
 
@@ -193,6 +186,8 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 
 # clean the temporary directory
 unless ($o_keepSession) {
+	# TODO : remove all files before deleting the directory
+	say "Removing temporary directory";
 	rmdir $tempDownloadFolder;
 }
 
