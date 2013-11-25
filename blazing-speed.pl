@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Version		:	v1.0
+# Version		:	v1.1
 # Author		:	Jozef Legény
 # Date			:	2013
 # Support		:	contact@clockwork.fr
@@ -23,7 +23,7 @@ my $o_slices = 3; # number of concurrent transfers
 my $o_minimumSize = 1024*1024; # if target file is smaller than this it will be simply copied by scp
 my $o_blockSize = 512; # size of transferred blocks
 my $o_myIP = 'auto'; # own public IP address
-my $o_keepSession;
+my $o_keepSession = 0; # keep temporary folder after the download is complete
 
 GetOptions(
 	'slices=i' => \$o_slices,
@@ -189,6 +189,10 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 unless ($o_keepSession) {
 	# TODO : remove all files before deleting the directory
 	say "Removing temporary directory";
+	for (0..$o_slices)
+	{
+		unlink "$tempDownloadFolder/slice-$_.part";
+	}
 	rmdir $tempDownloadFolder;
 }
 
