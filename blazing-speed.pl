@@ -24,6 +24,7 @@ my $o_minimumSize = 1024*1024; # if target file is smaller than this it will be 
 my $o_blockSize = 512; # size of transferred blocks
 my $o_myIP = 'auto'; # own public IP address
 my $o_keepSession = 0; # keep temporary folder after the download is complete
+my $o_verbose = 0; # display verboe log
 
 GetOptions(
 	'slices=i' => \$o_slices,
@@ -32,13 +33,14 @@ GetOptions(
 	'block-size=i' => \$o_blockSize,
 	'own-address=s' => \$o_myIP,
 	'keep-session!' => \$o_keepSession,
+	'verbose!' => \$o_verbose,
 ) or die "Error handling command line arguments";
 
 # determine the own IP address if it was not specified
 
 if ($o_myIP eq 'auto') {
 	$o_myIP = get "http://tnx.nl/ip";
-	say "Auto determined the public IP address as $o_myIP";
+	say "Auto determined the public IP address as $o_myIP" if $o_verbose;
 }
 
 not $o_myIP =~ /$RE{net}{IPv4}/ and die "Can not determine own public address";
@@ -54,22 +56,18 @@ $remoteFile =~ /([^\/]+)$/; # get the filename part of the remote file
 not $localFile and $localFile = $1; # if the local file was not specified use the remote file name
 
 # print what we will actually do
-
-say qq{Will connect to $remoteHost on port $o_port.};
-say qq{Will fetch file "$remoteFile" as $o_slices parts and save it to "$localFile".};
+say qq{Will connect to $remoteHost on port $o_port.} if $o_verbose;
+say qq{Will fetch file "$remoteFile" as $o_slices parts and save it to "$localFile".} if $o_verbose;
 
 # Check own platform
-
 my $localPlatform = `uname`;
 chomp $localPlatform;
 
 # Check the remote platform
-
 my $remotePlatform = `ssh "$remoteHost" 'uname'`;
 chomp $remotePlatform;
 
 # Check the file size
-
 my $statCommand;
 
 switch ($remotePlatform)
@@ -83,15 +81,14 @@ chomp $fileSize;
 
 
 if (not ($fileSize =~ /^\d+$/ and $fileSize > 0)) { # file does not exist
-	say "The remote file does not exist";
-	die;
+	die "The remote file does not exist";
 } 
 
-say "The targets file size is $fileSize bytes.";
+say "The targets file size is $fileSize bytes." if $o_verbose;
 
 # fetch the file directly if it is too small to be split or the person requested a single split
 if ($fileSize < $o_minimumSize or $o_slices < 2) {
-	say "The file is too small, will use scp to fetch it";
+	say "The file is too small, will use scp to fetch it" if $o_verbose;
 
 	$remoteFile =~ s/ /\\ /g;
 	`scp $remoteHost:"$remoteFile" "$localFile"`;
@@ -101,7 +98,7 @@ if ($fileSize < $o_minimumSize or $o_slices < 2) {
 # proceed to file splitting
 
 # first calculate the sizes of the chunks
-say "The file is large enough, it will be split like so:";
+say "The file is large enough, it will be split like so:" if $o_verbose;
 
 my $splitSizeInBlocks;
 
@@ -112,10 +109,10 @@ my $splitSizeInBlocks;
 
 for (1 .. $o_slices - 1)
 {
-	say "Slice	$_ :		$splitSizeInBlocks blocks of		$o_blockSize for a total of		", $splitSizeInBlocks * $o_blockSize, " bytes";
+	say "Slice	$_ :		$splitSizeInBlocks blocks of		$o_blockSize for a total of		", $splitSizeInBlocks * $o_blockSize, " bytes" if $o_verbose;
 }
 
-say "Slice	$o_slices :		will contain remainder of the file thus 		", $fileSize - ($splitSizeInBlocks * $o_blockSize * ($o_slices - 1)), " bytes";
+say "Slice	$o_slices :		will contain remainder of the file thus 		", $fileSize - ($splitSizeInBlocks * $o_blockSize * ($o_slices - 1)), " bytes" if $o_verbose;
 
 # create a temporary directory
 
@@ -148,16 +145,16 @@ my $current_block = 0;
 
 for (my $index_command = 0; $index_command < $o_slices; $index_command++) {
 	my $current_port = $o_port + $index_command;
-	say "Will request slice $index_command on port $current_port";
+	say "Will request slice $index_command on port $current_port" if $o_verbose;
 	
 	my $countCommand = $index_command != $o_slices - 1 ? "count=$splitSizeInBlocks" : "";
 
 	my $netcatRequestCommand = qq{ssh $remoteHost 'dd ibs=$o_blockSize if="$remoteFile" skip=$current_block $countCommand | nc -w 1 $o_myIP $current_port'};
 
-	say "$netcatRequestCommand";
-	`$netcatRequestCommand > /dev/null &`;
+	say "> $netcatRequestCommand" if $o_verbose;
+	`nohup $netcatRequestCommand > /dev/null &`;
 
-	say "Requested slice $index_command";
+	say "Requested slice $index_command" if $o_verbose;
 
 	$current_block += $splitSizeInBlocks;
 }
@@ -169,7 +166,7 @@ foreach (@receivingChildren) {
 	# say "Joined child with pid $tmp has finished downloading";
 }
 
-say "Everything received, joining splits into the final destination";
+say "Everything received, joining splits into the final destination" if $o_verbose;
 
 for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 {
@@ -181,28 +178,29 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 		case /Darwin/ { $index_file > 0 and $joinCommand .= " seek=" . $index_file * $splitSizeInBlocks; }
 	}
 
-	say "$joinCommand";
-	`$joinCommand`;
+	say "> $joinCommand" if $o_verbose;
+	`nohup $joinCommand`;
 }
 
 # clean the temporary directory
 unless ($o_keepSession) {
 	# TODO : remove all files before deleting the directory
-	say "Removing temporary directory";
 	for (0..$o_slices)
 	{
 		unlink "$tempDownloadFolder/slice-$_.part";
 	}
+
+	say "Removing temporary directory" if $o_verbose;
 	rmdir $tempDownloadFolder;
 }
 
-say "Done";
+say "Done" if $o_verbose;
 
 sub startListeningForSlice($$) {
 	my $sliceToDownload = shift;
 	my $tempDownloadFolder = shift;
 	my $currentPort = $o_port + $sliceToDownload;
-	say "  [$sliceToDownload] Listening for slice $sliceToDownload on port ", $currentPort;
+	say "  [$sliceToDownload] Listening for slice $sliceToDownload on port ", $currentPort if $o_verbose;
 
 	my $netcatListenCommand;
 
@@ -212,9 +210,9 @@ sub startListeningForSlice($$) {
 		case /Darwin/ { $netcatListenCommand = qq{nc -H 10 -l > "$tempDownloadFolder/slice-$sliceToDownload.part" $currentPort};  }
 	}
 
-	`$netcatListenCommand`;
+	`nohup $netcatListenCommand`;
 
-	say "  [$sliceToDownload] Download of slice $sliceToDownload has finished";
+	say "  [$sliceToDownload] Download of slice $sliceToDownload has finished" if $o_verbose;
 	return $sliceToDownload;
 }
 
