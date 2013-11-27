@@ -187,7 +187,6 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 
 # clean the temporary directory
 unless ($o_keepSession) {
-	# TODO : remove all files before deleting the directory
 	say "Removing temporary directory";
 	for (0..$o_slices)
 	{
