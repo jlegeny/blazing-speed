@@ -47,7 +47,7 @@ not $o_myIP =~ /$RE{net}{IPv4}/ and die "Can not determine own public address";
 
 my $remoteHost = $ARGV[0];
 my $remoteFile = $ARGV[1];
-my $localFile = $ARGV[3];
+my $localFile = $ARGV[2];
 
 say "usage $0 <user\@remoteHost> <remote file> [local file]" and die if scalar @ARGV < 2;
 
