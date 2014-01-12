@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Version		:	v1.1
+# Version		:	v1.999
 # Author		:	Jozef Legény
 # Date			:	2013
 # Support		:	contact@clockwork.fr
@@ -16,9 +16,9 @@ use Getopt::Long;
 use LWP::Simple;
 use Regexp::Common qw /net/;
 use Switch;
+use Term::ProgressBar;
 
 my $o_port = 42000; # starting port, will use more
-	'slices' => 3, # number of concurrent transfers
 my $o_slices = 3; # number of concurrent transfers
 my $o_minimumSize = 1024*1024; # if target file is smaller than this it will be simply copied by scp
 my $o_blockSize = 512; # size of transferred blocks
@@ -68,15 +68,15 @@ my $remotePlatform = `ssh "$remoteHost" 'uname'`;
 chomp $remotePlatform;
 
 # Check the file size
-my $statCommand;
+my $remoteStatCommand;
 
 switch ($remotePlatform)
 {
-	case "Linux" { $statCommand = 'stat -c %s'; }
-	case "Darwin" { $statCommand = 'stat -f %z'; }
+	case "Linux" { $remoteStatCommand = 'stat -c %s'; }
+	case "Darwin" { $remoteStatCommand = 'stat -f %z'; }
 }
 
-my $fileSize = `ssh "$remoteHost" '$statCommand "$remoteFile"'`;
+my $fileSize = `ssh "$remoteHost" '$remoteStatCommand "$remoteFile"'`;
 chomp $fileSize;
 
 
@@ -139,6 +139,23 @@ for (my $index_child = 0; $index_child < $o_slices; $index_child++) {
 	}
 }
 
+my $progressChild;
+# create a process for calculating progress
+{
+	my $current_pid = fork();
+
+	if ($current_pid) {
+		$progressChild = $current_pid;
+	}
+	elsif ($current_pid == 0) {
+		startCalculatingProgress($tempDownloadFolder);
+		exit 0;
+	}
+	else {
+		die "Could not fork: $!\n";
+	}
+}
+
 # listening has started, request server to send data
 
 my $current_block = 0;
@@ -160,11 +177,12 @@ for (my $index_command = 0; $index_command < $o_slices; $index_command++) {
 }
 
 # wait for children to finish
-
 foreach (@receivingChildren) {
 	my $tmp = waitpid($_, 0);
 	# say "Joined child with pid $tmp has finished downloading";
 }
+
+# wait for progressbar to finish
 
 say "Everything received, joining splits into the final destination" if $o_verbose;
 
@@ -194,6 +212,7 @@ unless ($o_keepSession) {
 	rmdir $tempDownloadFolder;
 }
 
+waitpid($progressChild, 0);
 say "Done" if $o_verbose;
 
 sub startListeningForSlice($$) {
@@ -216,3 +235,53 @@ sub startListeningForSlice($$) {
 	return $sliceToDownload;
 }
 
+sub startCalculatingProgress($) {
+use Switch;
+	local $| = 1;
+	my $tempDownloadFolder = shift;
+	say "Starting the progressbar";
+	my $progress = Term::ProgressBar->new({
+			name => 'Downloaded',
+			count => $fileSize,
+			ETA => 'linear',
+		});
+	$progress->max_update_rate(1);
+	my $next_update = 0;
+
+	my $localStatCommand;
+
+	switch ($localPlatform)
+	{
+		case "Linux" { $localStatCommand = 'stat -c %s'; }
+		case "Darwin" { $localStatCommand = 'stat -f %z'; }
+	}
+
+
+	while (-e $tempDownloadFolder) {
+		my $dataDownloadedSoFar = 0;
+		for (0..$o_slices) {
+			if (-e "$tempDownloadFolder/slice-$_.part")
+			{
+				my $currentSliceSize = `$localStatCommand "$tempDownloadFolder/slice-$_.part"`;
+				$dataDownloadedSoFar += $currentSliceSize;
+
+				my $currentSliceCompleteSize;
+				if ($_ < $o_slices - 1) {
+					$currentSliceCompleteSize = $splitSizeInBlocks * $o_blockSize;
+				}
+				else {
+					$currentSliceCompleteSize = $fileSize - ($splitSizeInBlocks * $o_blockSize * ($o_slices - 1));
+				}
+
+				my $percentComplete = $currentSliceSize / $currentSliceCompleteSize;
+				#print "slice $_: $percentComplete\n";
+				#$progress->message($percentComplete);
+			}
+			$next_update = $progress->update($dataDownloadedSoFar) if $dataDownloadedSoFar > $next_update;
+		}
+		sleep 1;
+	}
+
+	$progress->update($fileSize) if $fileSize >= $next_update;
+
+}
