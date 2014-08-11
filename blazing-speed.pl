@@ -17,6 +17,7 @@ use LWP::Simple;
 use Regexp::Common qw /net/;
 use Switch;
 use Term::ProgressBar;
+use Term::ReadKey;
 
 my $o_port = 42000; # starting port, will use more
 my $o_slices = 3; # number of concurrent transfers
@@ -25,6 +26,7 @@ my $o_blockSize = 512; # size of transferred blocks
 my $o_myIP = 'auto'; # own public IP address
 my $o_keepSession = 0; # keep temporary folder after the download is complete
 my $o_verbose = 0; # display verboe log
+my $o_password = 0; # ask for password
 
 GetOptions(
 	'slices=i' => \$o_slices,
@@ -34,6 +36,7 @@ GetOptions(
 	'own-address=s' => \$o_myIP,
 	'keep-session!' => \$o_keepSession,
 	'verbose!' => \$o_verbose,
+	'password!' => \$o_password
 ) or die "Error handling command line arguments";
 
 # determine the own IP address if it was not specified
@@ -54,6 +57,18 @@ say "usage $0 <user\@remoteHost> <remote file> [local file]" and die if scalar @
 $remoteFile =~ /([^\/]+)$/; # get the filename part of the remote file
 
 not $localFile and $localFile = $1; # if the local file was not specified use the remote file name
+
+# ask for password if necessary
+my $remotePassword;
+
+if ($o_password) {
+	ReadMode('noecho');
+	$remotePassword = ReadLine(0);
+}
+
+say "Your typed password was '$remotePassword'";
+
+
 
 # print what we will actually do
 say qq{Will connect to $remoteHost on port $o_port.} if $o_verbose;
@@ -199,6 +214,7 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 	say "> $joinCommand" if $o_verbose;
 	`nohup $joinCommand`;
 }
+say "Slices have been joined in the target file" if $o_verbose;
 
 # clean the temporary directory
 unless ($o_keepSession) {
@@ -234,8 +250,8 @@ sub startListeningForSlice($$) {
 	say "  [$sliceToDownload] Download of slice $sliceToDownload has finished" if $o_verbose;
 	return $sliceToDownload;
 }
-sub startCalculatingProgress($) {
 
+sub startCalculatingProgress($) {
 use Switch;
 	local $| = 1;
 	my $tempDownloadFolder = shift;
