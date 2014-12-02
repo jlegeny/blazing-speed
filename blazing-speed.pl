@@ -11,12 +11,14 @@
 # For more details read the LICENSE file
 
 use strict;
-use feature ':5.16';
+no warnings 'experimental::smartmatch';
+use feature ':5.18';
+use feature 'switch';
 use Getopt::Long;
 use LWP::Simple;
 use Regexp::Common qw /net/;
-use Switch;
 use Term::ProgressBar;
+use Term::ReadKey;
 
 my $o_port = 42000; # starting port, will use more
 my $o_slices = 3; # number of concurrent transfers
@@ -25,6 +27,7 @@ my $o_blockSize = 512; # size of transferred blocks
 my $o_myIP = 'auto'; # own public IP address
 my $o_keepSession = 0; # keep temporary folder after the download is complete
 my $o_verbose = 0; # display verboe log
+my $o_password = 0; # ask for password
 
 GetOptions(
 	'slices=i' => \$o_slices,
@@ -34,6 +37,7 @@ GetOptions(
 	'own-address=s' => \$o_myIP,
 	'keep-session!' => \$o_keepSession,
 	'verbose!' => \$o_verbose,
+	'password!' => \$o_password
 ) or die "Error handling command line arguments";
 
 # determine the own IP address if it was not specified
@@ -47,13 +51,25 @@ not $o_myIP =~ /$RE{net}{IPv4}/ and die "Can not determine own public address";
 
 my $remoteHost = $ARGV[0];
 my $remoteFile = $ARGV[1];
-my $localFile = $ARGV[3];
+my $localFile = $ARGV[2];
 
 say "usage $0 <user\@remoteHost> <remote file> [local file]" and die if scalar @ARGV < 2;
 
 $remoteFile =~ /([^\/]+)$/; # get the filename part of the remote file
 
 not $localFile and $localFile = $1; # if the local file was not specified use the remote file name
+
+# ask for password if necessary
+my $remotePassword;
+
+if ($o_password) {
+	ReadMode('noecho');
+	$remotePassword = ReadLine(0);
+}
+
+say "Your typed password was '$remotePassword'";
+
+
 
 # print what we will actually do
 say qq{Will connect to $remoteHost on port $o_port.} if $o_verbose;
@@ -70,10 +86,10 @@ chomp $remotePlatform;
 # Check the file size
 my $remoteStatCommand;
 
-switch ($remotePlatform)
+given ($remotePlatform)
 {
-	case "Linux" { $remoteStatCommand = 'stat -c %s'; }
-	case "Darwin" { $remoteStatCommand = 'stat -f %z'; }
+	when ("Linux") { $remoteStatCommand = 'stat -c %s'; }
+	when ("Darwin") { $remoteStatCommand = 'stat -f %z'; }
 }
 
 my $fileSize = `ssh "$remoteHost" '$remoteStatCommand "$remoteFile"'`;
@@ -190,15 +206,16 @@ for (my $index_file = 0; $index_file < $o_slices; $index_file++)
 {
 	my $joinCommand = qq{dd if="$tempDownloadFolder/slice-$index_file.part" bs=$o_blockSize of="$localFile"};
 
-	switch($localPlatform)
+	given($localPlatform)
 	{
-		case /Linux/ { $index_file > 0 and $joinCommand .= " oflag=append conv=notrunc"; }
-		case /Darwin/ { $index_file > 0 and $joinCommand .= " seek=" . $index_file * $splitSizeInBlocks; }
+	  when (/Linux/) { $index_file > 0 and $joinCommand .= " oflag=append conv=notrunc"; }
+		when (/Darwin/) { $index_file > 0 and $joinCommand .= " seek=" . $index_file * $splitSizeInBlocks; }
 	}
 
 	say "> $joinCommand" if $o_verbose;
 	`nohup $joinCommand`;
 }
+say "Slices have been joined in the target file" if $o_verbose;
 
 # clean the temporary directory
 unless ($o_keepSession) {
@@ -223,10 +240,10 @@ sub startListeningForSlice($$) {
 
 	my $netcatListenCommand;
 
-	switch ($localPlatform)
+	given ($localPlatform)
 	{
-		case /Linux/ {  $netcatListenCommand = qq{nc -l -p $currentPort > "$tempDownloadFolder/slice-$sliceToDownload.part" };  }
-		case /Darwin/ { $netcatListenCommand = qq{nc -H 10 -l > "$tempDownloadFolder/slice-$sliceToDownload.part" $currentPort};  }
+		when (/Linux/) {  $netcatListenCommand = qq{nc -l -p $currentPort > "$tempDownloadFolder/slice-$sliceToDownload.part" };  }
+		when (/Darwin/) { $netcatListenCommand = qq{nc -H 10 -l > "$tempDownloadFolder/slice-$sliceToDownload.part" $currentPort};  }
 	}
 
 	`nohup $netcatListenCommand`;
@@ -234,9 +251,8 @@ sub startListeningForSlice($$) {
 	say "  [$sliceToDownload] Download of slice $sliceToDownload has finished" if $o_verbose;
 	return $sliceToDownload;
 }
-sub startCalculatingProgress($) {
 
-use Switch;
+sub startCalculatingProgress($) {
 	local $| = 1;
 	my $tempDownloadFolder = shift;
 	say "Starting the progressbar";
@@ -250,10 +266,10 @@ use Switch;
 
 	my $localStatCommand;
 
-	switch ($localPlatform)
+	given ($localPlatform)
 	{
-		case "Linux" { $localStatCommand = 'stat -c %s'; }
-		case "Darwin" { $localStatCommand = 'stat -f %z'; }
+		when ("Linux") { $localStatCommand = 'stat -c %s'; }
+		when ("Darwin") { $localStatCommand = 'stat -f %z'; }
 	}
 
 
